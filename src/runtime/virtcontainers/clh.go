@@ -925,8 +925,14 @@ func (clh *cloudHypervisor) hotplugAddBlockDevice(drive *config.BlockDrive) erro
 		clhDisk.Direct = &clh.config.BlockDeviceCacheDirect
 	}
 
+	// <mitchzhu> experimenting different options
 	queues := int32(clh.config.NumVCPUs())
-	queueSize := int32(1024)
+	//if queues > 4 {
+	//	queues -= 4
+	//} else {
+	//	queues = 1
+	//}
+	queueSize := int32(512)
 	clhDisk.NumQueues = &queues
 	clhDisk.QueueSize = &queueSize
 	clhDisk.SetIommu(clh.config.IOMMU)
