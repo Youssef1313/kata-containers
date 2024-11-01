@@ -156,20 +156,23 @@ impl AgentPolicy {
 
         let results = self.engine.eval_query(query, false)?;
 
-        if results.result.len() != 1 {
-            bail!("policy check: unexpected eval_query results {:?}", results);
-        }
-
         let prints = match self.engine.take_prints() {
             Ok(p) => p.join(" "),
             Err(e) => format!("Failed to get policy log: {e}"),
         };
 
-        if results.result[0].expressions.len() != 1 {
+        if results.result.len() != 1 {
             // Results are empty for UpdateInterfaceRequest when AllowRequestsFailingPolicy is set to true
             if self.allow_failures {
                 return Ok((true, prints));
             }
+            bail!(
+                "policy check: unexpected eval_query result len {:?}",
+                results
+            );
+        }
+
+        if results.result[0].expressions.len() != 1 {
             bail!(
                 "policy check: unexpected eval_query result expressions {:?}",
                 results
