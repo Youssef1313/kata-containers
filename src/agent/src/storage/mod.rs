@@ -294,6 +294,9 @@ fn mount_storage_handler(logger: &Logger, storage: &Storage) -> Result<String> {
 
 #[instrument]
 pub(crate) fn common_storage_handler(logger: &Logger, storage: &Storage) -> Result<String> {
+    println!(
+        "---------------------<mitchzhu>------------------\ninside common_storage_handler",
+    );
     const DM_VERITY: &str = "io.katacontainers.fs-opt.root-hash=";
     let opt = if let Some(o) = storage.options.iter().find(|e| e.starts_with(DM_VERITY)) {
         o
