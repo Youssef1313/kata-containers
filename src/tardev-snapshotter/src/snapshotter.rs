@@ -1,16 +1,14 @@
-//use base64::prelude::{Engine, BASE64_STANDARD};
+use base64::prelude::{Engine, BASE64_STANDARD};
 use containerd_client::{services::v1::ReadContentRequest, tonic::Request, with_namespace, Client};
 use containerd_snapshots::{api, Info, Kind, Snapshotter, Usage};
 use log::{debug, info, trace};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::{collections::HashMap, io, os::unix::ffi::OsStrExt};
+use std::{collections::HashMap, fs, fs::File, fs::OpenOptions, io, io::Read, io::Seek, os::unix::ffi::OsStrExt};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tonic::Status;
 use anyhow::{anyhow, Context, Result};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek};
 use zerocopy::AsBytes;
 use std::process::Command;
 use uuid::Uuid;
@@ -287,18 +285,23 @@ impl Store {
     }
 
     fn mounts_from_snapshot(&self, parent: &str) -> Result<Vec<api::types::Mount>, Status> {
+        const PREFIX: &str = "io.katacontainers.fs-opt";
+
+        // Get chain of layers.
         let mut next_parent = Some(parent.to_string());
-        let mut lower_dirs = Vec::new();
-    
+        let mut layers = Vec::new();
+        let mut opts = vec![format!(
+            "{PREFIX}.layer-src-prefix={}",
+            self.root.join("layers").to_string_lossy()
+        )];
         while let Some(p) = next_parent {
-            info!("----------------------<mitchzhu> processing layer");
             let info = self.read_snapshot(&p)?;
             if info.kind != Kind::Committed {
                 return Err(Status::failed_precondition(
                     "parent snapshot is not committed",
                 ));
             }
-    
+
             let root_hash = if let Some(rh) = info.labels.get(ROOT_HASH_LABEL) {
                 rh
             } else {
@@ -306,58 +309,28 @@ impl Store {
                     "parent snapshot has no root hash stored",
                 ));
             };
-    
-            let layer_path = self.layer_path(&p);
-            let dm_verity_device = self.create_dm_verity_device(layer_path.to_str().unwrap(), root_hash)
-                .map_err(|_| Status::internal("unable to create DM-Verity device"))?;
-    
-            // Mount the DM-Verity device
-            let mount_path = format!("/var/lib/containerd/io.containerd.snapshotter.v1.tardev/mounts/{}", p);
-            if let Err(e) = fs::create_dir_all(&mount_path) {
-                return Err(Status::internal(format!("Failed to create mount directory: {:?}", e)));
-            }
-            
-            let output = Command::new("mount")
-                .arg(&dm_verity_device)
-                .arg(&mount_path)
-                .output()
-                .expect("<mitchzhu> Failed to execute mount command for DM-Verity device");
-    
-            if !output.status.success() {
-                return Err(Status::internal(format!(
-                    "Failed to mount DM-Verity device: {:?}",
-                    String::from_utf8_lossy(&output.stderr)
-                )));
-            }
-    
-            info!("<mitchzhu> Mounted DM-Verity device at {}", mount_path);
-            lower_dirs.push(mount_path);
-    
+
+            let name = name_to_hash(&p);
+            let layer_info = format!(
+                "{name},tar,ro,{PREFIX}.block_device=file,{PREFIX}.is-layer,{PREFIX}.root-hash={root_hash}");
+            layers.push(name);
+
+            opts.push(format!(
+                "{PREFIX}.layer={}",
+                BASE64_STANDARD.encode(layer_info.as_bytes())
+            ));
+
             next_parent = (!info.parent.is_empty()).then_some(info.parent);
         }
-    
-        let work_dir = format!("/var/lib/containerd/io.containerd.snapshotter.v1.tardev/work/{}", parent);
-        let upper_dir = format!("/var/lib/containerd/io.containerd.snapshotter.v1.tardev/upper/{}", parent);
-    
-        if let Err(e) = fs::create_dir_all(&work_dir) {
-            return Err(Status::internal(format!("Failed to create workdir: {:?}", e)));
-        }
-        if let Err(e) = fs::create_dir_all(&upper_dir) {
-            return Err(Status::internal(format!("Failed to create upperdir: {:?}", e)));
-        }
-    
-        let options = vec![
-            format!("lowerdir={}", lower_dirs.join(":")),
-            format!("upperdir={}", upper_dir),
-            format!("workdir={}", work_dir),
-        ];
-    
-        info!("<mitchzhu> Preparing overlayFS");
+
+        opts.push(format!("{PREFIX}.overlay-rw"));
+        opts.push(format!("lowerdir={}", layers.join(":")));
+
         Ok(vec![api::types::Mount {
-            r#type: "overlay".into(),
-            source: "overlay".into(),
+            r#type: "fuse3.kata-overlay".into(),
+            source: "/".into(),
             target: String::new(),
-            options,
+            options: opts,
         }])
     }
 }
