@@ -327,6 +327,7 @@ impl Store {
         opts.push(format!("{PREFIX}.overlay-rw"));
         opts.push(format!("lowerdir={}", layers.join(":")));
 
+        info!("<mitchzhu> prepare_snapshot_for_use: mounts from snapshots return");
         Ok(vec![api::types::Mount {
             r#type: "fuse3.kata-overlay".into(),
             source: "/".into(),
@@ -531,6 +532,7 @@ impl Snapshotter for TarDevSnapshotter {
         }
 
         if info.labels.get(TARGET_LAYER_DIGEST_LABEL).is_some() {
+            info!("<mitchzhu> mounts: extract dir");
             let extract_dir = store.extract_dir(&key);
             Ok(vec![api::types::Mount {
                 r#type: "bind".into(),
@@ -539,6 +541,7 @@ impl Snapshotter for TarDevSnapshotter {
                 options: Vec::new(),
             }])
         } else {
+            info!("<mitchzhu> mounts: mounts from snapshot");
             store.mounts_from_snapshot(&info.parent)
         }
     }
