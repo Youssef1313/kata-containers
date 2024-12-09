@@ -281,6 +281,7 @@ impl Store {
     ) -> Result<Vec<api::types::Mount>, Status> {
         let mounts = self.mounts_from_snapshot(&parent)?;
         self.write_snapshot(kind, key, parent, labels)?;
+        info!("<mitchzhu> prepare_snapshot_for_use: prepared and return a mount for snapshots", layer_path);
         Ok(mounts)
     }
 
