@@ -281,7 +281,7 @@ impl Store {
     ) -> Result<Vec<api::types::Mount>, Status> {
         let mounts = self.mounts_from_snapshot(&parent)?;
         self.write_snapshot(kind, key, parent, labels)?;
-        info!("<mitchzhu> prepare_snapshot_for_use: prepared and return a mount for snapshots");
+        info!("<mitchzhu> prepare_snapshot_for_use: prepare_snapshot_for_use called mounts_from_snapshot and write_snapshot");
         Ok(mounts)
     }
 
@@ -542,7 +542,7 @@ impl Snapshotter for TarDevSnapshotter {
                 options: Vec::new(),
             }])
         } else {
-            info!("<mitchzhu> mounts: mounts from snapshot");
+            info!("<mitchzhu> mounts: mounts called mounts_from_snapshot");
             store.mounts_from_snapshot(&info.parent)
         }
     }
