@@ -322,12 +322,13 @@ impl Store {
             ));
 
             next_parent = (!info.parent.is_empty()).then_some(info.parent);
+            info!("<mitchzhu> mounts_from_snapshot: iterated over one parent");
         }
 
         opts.push(format!("{PREFIX}.overlay-rw"));
         opts.push(format!("lowerdir={}", layers.join(":")));
 
-        info!("<mitchzhu> prepare_snapshot_for_use: mounts from snapshots return");
+        info!("<mitchzhu> mounts_from_snapshot: mounts from snapshots return");
         Ok(vec![api::types::Mount {
             r#type: "fuse3.kata-overlay".into(),
             source: "/".into(),
