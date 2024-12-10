@@ -295,6 +295,7 @@ fn mount_storage_handler(logger: &Logger, storage: &Storage) -> Result<String> {
 #[instrument]
 pub(crate) fn common_storage_handler(logger: &Logger, storage: &Storage) -> Result<String> {
     info!(
+        logger, 
         "---------------------<mitchzhu>------------------\ninside common_storage_handler",
     );
     const DM_VERITY: &str = "io.katacontainers.fs-opt.root-hash=";
