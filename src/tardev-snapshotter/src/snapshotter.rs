@@ -131,6 +131,7 @@ impl Store {
             let info = self.read_snapshot(&p)?;
             info!("mounts_from_snapshot(): processing snapshots: {}", &info.name);
             if info.kind != Kind::Committed {
+                info!("mounts_from_snapshot(): 1");
                 return Err(Status::failed_precondition(
                     "parent snapshot is not committed",
                 ));
@@ -139,10 +140,12 @@ impl Store {
             let root_hash = if let Some(rh) = info.labels.get(ROOT_HASH_LABEL) {
                 rh
             } else {
+                info!("mounts_from_snapshot(): 2");
                 return Err(Status::failed_precondition(
                     "parent snapshot has no root hash stored",
                 ));
             };
+            info!("mounts_from_snapshot(): 3");
 
             let name = name_to_hash(&p);
             let layer_info = format!(
@@ -153,10 +156,11 @@ impl Store {
                 "{PREFIX}.layer={}",
                 BASE64_STANDARD.encode(layer_info.as_bytes())
             ));
-
+            info!("mounts_from_snapshot(): 4");
             next_parent = (!info.parent.is_empty()).then_some(info.parent);
         }
 
+        info!("mounts_from_snapshot(): 5");
         opts.push(format!("{PREFIX}.overlay-rw"));
         opts.push(format!("lowerdir={}", layers.join(":")));
 
