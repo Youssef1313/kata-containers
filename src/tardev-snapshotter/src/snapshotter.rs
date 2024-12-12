@@ -1,10 +1,10 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use containerd_client::{services::v1::ReadContentRequest, tonic::Request, with_namespace, Client};
 use containerd_snapshots::{api, Info, Kind, Snapshotter, Usage};
-use log::{debug, info, trace};
+use log::{debug, info, trace, error};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::{collections::HashMap, fs, fs::OpenOptions, io, io::Seek, os::unix::ffi::OsStrExt};
+use std::{collections::HashMap, fs, fs::OpenOptions, io, io::Seek, os::unix::ffi::OsStrExt, process::Command};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tonic::Status;
@@ -120,9 +120,6 @@ impl Store {
     fn mounts_from_snapshot(&self, parent: &str, do_mount: bool) -> Result<Vec<api::types::Mount>, Status> {
         const PREFIX: &str = "io.katacontainers.fs-opt";
 
-        if do_mount {
-            info!("mounts_from_snapshot(): perform actual mouunting");
-        }
         // Get chain of layers.
         let mut next_parent = Some(parent.to_string());
         let mut layers = Vec::new();
@@ -130,6 +127,8 @@ impl Store {
             "{PREFIX}.layer-src-prefix={}",
             self.root.join("layers").to_string_lossy()
         )];
+        let src_prefix = self.root.join("layers");
+        let mut mounted_layers = Vec::new();
         while let Some(p) = next_parent {
             let info = self.read_snapshot(&p)?;
             if info.kind != Kind::Committed {
@@ -150,13 +149,138 @@ impl Store {
             let layer_info = format!(
                 "{name},tar,ro,{PREFIX}.block_device=file,{PREFIX}.is-layer,{PREFIX}.root-hash={root_hash}");
             info!("mounts_from_snapshot(): processing snapshots: {}, layername: {}", &info.name, &name);
+
+            if do_mount {
+                info!("mounts_from_snapshot(): performing tarfs mounting");
+                // Extract layer information
+                let mut fields = layer_info.split(',');
+                let src = if let Some(p) = fields.next() {
+                    if !p.is_empty() && p.as_bytes()[0] != b'/' {
+                        src_prefix.join(Path::new(p))
+                    } else {
+                        Path::new(p).to_path_buf()
+                    }
+                } else {
+                    return Err(Status::invalid_argument("Missing source path in layer info"));
+                };
+                info!("src: {}", src.display());
+    
+                let fs_type = fields.next().ok_or_else(|| {
+                    Status::invalid_argument("Missing filesystem type in layer info")
+                })?;
+                info!("fs_type: {}", fs_type);
+    
+                let fs_opts = fields
+                    .filter(|o| !o.starts_with("io.katacontainers."))
+                    .fold(String::new(), |a, b| {
+                        if a.is_empty() {
+                            b.into()
+                        } else {
+                            format!("{a},{b}")
+                        }
+                    });
+                info!("fs_opts: {}", fs_opts);
+                
+                let mount_path = self.root.join("mounts").join(&name);
+                std::fs::create_dir_all(&mount_path)?;
+
+                let status = Command::new("mount")
+                    .arg(&src)
+                    .arg(&p)
+                    .arg("-t")
+                    .arg(&fs_type)
+                    .arg("-o")
+                    .arg(&fs_opts)
+                    .status()?;
+                if !status.success() {
+                    return Err(Status::internal(format!(
+                        "Failed to mount layer from source {:?} with status {status}",
+                        src
+                    )));
+                }
+
+                info!(
+                    "mounts_from_snapshot(): mounting layer {} from source {:?} to {:?} with fs_type {} and options {}",
+                    &name, &src, &mount_path, &fs_type, &fs_opts
+                );
+                mounted_layers.push(mount_path.clone());
+            }
+
             layers.push(name);
 
             opts.push(format!(
                 "{PREFIX}.layer={}",
                 BASE64_STANDARD.encode(layer_info.as_bytes())
             ));
+            
             next_parent = (!info.parent.is_empty()).then_some(info.parent);
+        }
+
+        if do_mount {
+            info!("mounts_from_snapshot(): perform overlay mounting");
+
+            let overlay_target = self.root.join("overlay_mounted");
+            std::fs::create_dir_all(&overlay_target)?;
+
+            if mounted_layers.len() == 1 {
+                // Perform a bind mount if only one layer exists
+                let single_layer = &mounted_layers[0];
+                info!(
+                    "single bind mount from {:?} to {:?}",
+                    single_layer, overlay_target
+                );
+                let status = Command::new("mount")
+                    .arg(single_layer)
+                    .arg(&overlay_target)
+                    .args(&["-t", "bind", "-o", "bind"])
+                    .status()?;
+                if !status.success() {
+                    return Err(Status::internal(format!(
+                        "Failed to perform bind mount from {:?} to {:?}",
+                        single_layer, overlay_target
+                    )));
+                }
+            } else {
+                // Perform an overlay mount if multiple layers exist
+                let lowerdirs = mounted_layers
+                    .iter()
+                    .map(|layer| layer.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(":");
+                info!(
+                    "Multiple overlay mount with lowerdirs: {} at {:?}",
+                    lowerdirs, overlay_target
+                );
+                let status = Command::new("mount")
+                    .arg("none")
+                    .arg(&overlay_target)
+                    .args(&["-t", "overlay", "-o", &format!("lowerdir={}", lowerdirs)])
+                    .status()?;
+                if !status.success() {
+                    return Err(Status::internal(format!(
+                        "Failed to perform overlay mount at {:?}",
+                        overlay_target
+                    )));
+                }
+            }
+
+            info!("Overlay mount completed at {:?}", overlay_target);
+
+            // Unmount individual layers after the overlay is created
+            for layer_path in &mounted_layers {
+                info!("Unmounting layer at {:?}", layer_path);
+                let status = Command::new("umount")
+                    .arg(layer_path)
+                    .status()?;
+                if !status.success() {
+                    error!(
+                        "Failed to unmount layer at {:?}, status: {status}",
+                        layer_path
+                    );
+                } else {
+                    info!("Successfully unmounted layer at {:?}", layer_path);
+                }
+            }
         }
 
         opts.push(format!("{PREFIX}.overlay-rw"));
