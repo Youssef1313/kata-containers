@@ -129,6 +129,7 @@ impl Store {
         )];
         while let Some(p) = next_parent {
             let info = self.read_snapshot(&p)?;
+            info!("mounts_from_snapshot(): processing snapshots: {}", &info.name);
             if info.kind != Kind::Committed {
                 return Err(Status::failed_precondition(
                     "parent snapshot is not committed",
@@ -364,6 +365,7 @@ impl Snapshotter for TarDevSnapshotter {
 
         if info.labels.get(TARGET_LAYER_DIGEST_LABEL).is_some() {
             let extract_dir = store.extract_dir(&key);
+            info!("mounts(): snapshot: {}, pass extract_dir to containerd so that it unpacks the layer to extract_dir: {}", &info.name, extract_dir.to_string_lossy());
             Ok(vec![api::types::Mount {
                 r#type: "bind".into(),
                 source: extract_dir.to_string_lossy().into(),
@@ -371,6 +373,7 @@ impl Snapshotter for TarDevSnapshotter {
                 options: Vec::new(),
             }])
         } else {
+            info!("mounts(): snapshot: {}, ready to use, preparing itself and parents ", &info.name);
             store.mounts_from_snapshot(&info.parent)
         }
     }
@@ -386,8 +389,10 @@ impl Snapshotter for TarDevSnapshotter {
         // There are two reasons for preparing a snapshot: to build an image and to actually use it
         // as a container image. We determine the reason by the presence of the snapshot-ref label.
         if labels.get(TARGET_LAYER_DIGEST_LABEL).is_some() {
+            info!("prepare(): prepare a staging dir for containerd tar data extraction");
             self.prepare_unpack_dir(key, parent, labels).await
         } else {
+            info!("prepare(): create active snapshot");
             self.store
                 .write()
                 .await
