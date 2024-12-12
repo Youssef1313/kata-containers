@@ -112,14 +112,17 @@ impl Store {
         parent: String,
         labels: HashMap<String, String>,
     ) -> Result<Vec<api::types::Mount>, Status> {
-        let mounts = self.mounts_from_snapshot(&parent)?;
+        let mounts = self.mounts_from_snapshot(&parent, false)?;
         self.write_snapshot(kind, key, parent, labels)?;
         Ok(mounts)
     }
 
-    fn mounts_from_snapshot(&self, parent: &str) -> Result<Vec<api::types::Mount>, Status> {
+    fn mounts_from_snapshot(&self, parent: &str, do_mount: bool) -> Result<Vec<api::types::Mount>, Status> {
         const PREFIX: &str = "io.katacontainers.fs-opt";
 
+        if do_mount {
+            info!("mounts_from_snapshot(): perform actual mouunting");
+        }
         // Get chain of layers.
         let mut next_parent = Some(parent.to_string());
         let mut layers = Vec::new();
@@ -129,9 +132,7 @@ impl Store {
         )];
         while let Some(p) = next_parent {
             let info = self.read_snapshot(&p)?;
-            info!("mounts_from_snapshot(): processing snapshots: {}", &info.name);
             if info.kind != Kind::Committed {
-                info!("mounts_from_snapshot(): 1");
                 return Err(Status::failed_precondition(
                     "parent snapshot is not committed",
                 ));
@@ -140,27 +141,24 @@ impl Store {
             let root_hash = if let Some(rh) = info.labels.get(ROOT_HASH_LABEL) {
                 rh
             } else {
-                info!("mounts_from_snapshot(): 2");
                 return Err(Status::failed_precondition(
                     "parent snapshot has no root hash stored",
                 ));
             };
-            info!("mounts_from_snapshot(): 3");
 
             let name = name_to_hash(&p);
             let layer_info = format!(
                 "{name},tar,ro,{PREFIX}.block_device=file,{PREFIX}.is-layer,{PREFIX}.root-hash={root_hash}");
+            info!("mounts_from_snapshot(): processing snapshots: {}, layername: {}", &info.name, &name);
             layers.push(name);
 
             opts.push(format!(
                 "{PREFIX}.layer={}",
                 BASE64_STANDARD.encode(layer_info.as_bytes())
             ));
-            info!("mounts_from_snapshot(): 4");
             next_parent = (!info.parent.is_empty()).then_some(info.parent);
         }
 
-        info!("mounts_from_snapshot(): 5");
         opts.push(format!("{PREFIX}.overlay-rw"));
         opts.push(format!("lowerdir={}", layers.join(":")));
 
@@ -378,7 +376,7 @@ impl Snapshotter for TarDevSnapshotter {
             }])
         } else {
             info!("mounts(): snapshot: {}, ready to use, preparing itself and parents ", &info.name);
-            store.mounts_from_snapshot(&info.parent)
+            store.mounts_from_snapshot(&info.parent, true)
         }
     }
 
