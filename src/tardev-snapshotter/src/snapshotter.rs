@@ -221,7 +221,7 @@ impl Store {
         if do_mount {
             info!("mounts_from_snapshot(): perform overlay mounting");
 
-            let overlay_target = self.root.join("overlay_mounted").join(Uuid::new_v4().to_string());
+            let overlay_target = self.root.join("overlay").join(Uuid::new_v4().to_string());
             std::fs::create_dir_all(&overlay_target)?;
 
             if mounted_layers.len() == 1 {
