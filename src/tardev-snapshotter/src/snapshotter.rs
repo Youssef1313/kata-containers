@@ -224,11 +224,22 @@ impl Store {
             info!("mounts_from_snapshot(): perform overlay mounting");
             let overlay_target = self.root.join("overlay").join(Uuid::new_v4().to_string());
             let overlay_upper = overlay_target.join("upper");
-            //let overlay_work = overlay_target.join("work");
+            let overlay_work = overlay_target.join("work");
 
-            //std::fs::create_dir_all(&overlay_upper)?;
-            //std::fs::create_dir_all(&overlay_work)?;
+            std::fs::create_dir_all(&overlay_upper)?;
+            std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
+
+            let status = Command::new("chmod")
+                .arg("0755")
+                .arg(&overlay_upper)
+                .status()?;
+            if !status.success() {
+                return Err(Status::internal(format!(
+                    "Failed to set permissions for {:?}",
+                overlay_upper
+                )));
+            }
 
             
             // Perform an overlay mount 
@@ -244,8 +255,8 @@ impl Store {
             let status = Command::new("mount")
                 .arg("none")
                 .arg(&overlay_target)
-                .args(&["-t", "overlay","-o", &format!("lowerdir={}",
-                    lowerdirs),])
+                .args(&["-t", "overlay","-o", &format!("lowerdir={},upperdir={},workdir={}",
+                    lowerdirs, overlay_upper.to_string_lossy(), overlay_work.to_string_lossy()),])
                     .status()?;
             if !status.success() {
                 return Err(Status::internal(format!(
