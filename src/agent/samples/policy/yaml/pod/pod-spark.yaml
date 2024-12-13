@@ -11,6 +11,9 @@ spec:
   containers:
     - name: spark
       image: "mcr.microsoft.com/mmlspark/spark2.4:v4_mini"
+      resources:
+        limits:
+          memory: "2Gi"
   topologySpreadConstraints:
     - maxSkew: 1
       minDomains: 1

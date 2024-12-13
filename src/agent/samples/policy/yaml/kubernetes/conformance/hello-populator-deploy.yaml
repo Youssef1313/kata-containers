@@ -96,6 +96,9 @@ spec:
       containers:
         - name: hello
           image: "registry.k8s.io/sig-storage/hello-populator:v1.0.1"
+          resources:
+            limits:
+              memory: "2Gi"
           imagePullPolicy: IfNotPresent
           args:
             - "--mode=controller"

@@ -22,3 +22,6 @@ spec:
       containers:
         - image: "mcr.microsoft.com/aks/e2e/library-busybox:master.220314.1-linux-amd64"
           name: busybox-deployment
+          resources:
+            limits:
+              memory: "2Gi"

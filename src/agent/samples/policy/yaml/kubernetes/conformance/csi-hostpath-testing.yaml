@@ -60,6 +60,9 @@ spec:
       containers:
         - name: socat
           image: "registry.k8s.io/sig-storage/hostpathplugin:v1.14.0"
+          resources:
+            limits:
+              memory: "2Gi"
           command:
             - socat
           args:

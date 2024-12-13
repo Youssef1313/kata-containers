@@ -23,6 +23,9 @@ spec:
       containers:
         - name: backend
           image: "marinerconfpodstest.azurecr.io/hashicorp/http-echo:latest"
+          resources:
+            limits:
+              memory: "2Gi"
           args:
             - "-text=Hello from Backend"
             - "-listen=:8080"

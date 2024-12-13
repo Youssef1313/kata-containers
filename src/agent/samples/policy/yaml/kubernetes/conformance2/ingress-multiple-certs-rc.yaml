@@ -16,6 +16,9 @@ spec:
       containers:
         - name: echoheaders-https
           image: "registry.k8s.io/e2e-test-images/agnhost:2.41"
+          resources:
+            limits:
+              memory: "2Gi"
           command:
             - /agnhost
             - netexec

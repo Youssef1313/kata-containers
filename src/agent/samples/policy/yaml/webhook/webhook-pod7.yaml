@@ -60,7 +60,9 @@ spec:
       image: "registry.k8s.io/e2e-test-images/agnhost:2.40"
       imagePullPolicy: IfNotPresent
       name: agnhost-container
-      resources: {}
+      resources:
+        limits:
+          memory: "2Gi"
       securityContext: {}
       terminationMessagePath: /dev/termination-log
       terminationMessagePolicy: File

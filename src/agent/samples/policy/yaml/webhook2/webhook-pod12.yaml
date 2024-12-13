@@ -89,7 +89,9 @@ spec:
       image: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
       imagePullPolicy: IfNotPresent
       name: c
-      resources: {}
+      resources:
+        limits:
+          memory: "2Gi"
       securityContext: {}
       terminationMessagePath: /dev/termination-log
       terminationMessagePolicy: File

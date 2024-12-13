@@ -87,7 +87,9 @@ spec:
       image: "registry.k8s.io/e2e-test-images/agnhost:2.40"
       imagePullPolicy: IfNotPresent
       name: secret-test
-      resources: {}
+      resources:
+        limits:
+          memory: "2Gi"
       terminationMessagePath: /dev/termination-log
       terminationMessagePolicy: File
       volumeMounts:
