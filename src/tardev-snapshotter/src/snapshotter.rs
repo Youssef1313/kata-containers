@@ -230,7 +230,16 @@ impl Store {
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
 
-            set_permissions(&overlay_target, Permissions::from_mode(0o755))?;
+            let status = Command::new("chmod")
+                .arg("0755")
+                .arg(&overlay_target)
+                .status()?;
+            if !status.success() {
+                return Err(Status::internal(format!(
+                    "Failed to set permissions for {:?}",
+                overlay_target
+                )));
+            }
             chown(
                 &overlay_target,
                 Some(Uid::from_raw(0)), // Set user ownership to root (0)
