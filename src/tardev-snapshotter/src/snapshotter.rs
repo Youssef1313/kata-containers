@@ -182,6 +182,7 @@ impl Store {
                 info!("fs_opts: {}", fs_opts);
                 
                 let mount_path = self.root.join("mounts").join(&name);
+                info!("mount_path: {}", mount_path.display());
                 std::fs::create_dir_all(&mount_path)?;
 
                 let status = Command::new("mount")
