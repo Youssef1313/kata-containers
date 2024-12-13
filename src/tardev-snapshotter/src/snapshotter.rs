@@ -4,11 +4,13 @@ use containerd_snapshots::{api, Info, Kind, Snapshotter, Usage};
 use log::{debug, info, trace, error};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::{collections::HashMap, fs, fs::OpenOptions, io, io::Seek, os::unix::ffi::OsStrExt, process::Command};
+use std::{collections::HashMap, fs, fs::OpenOptions, fs::set_permissions, fs::Permissions, io, io::Seek, os::unix::ffi::OsStrExt, process::Command};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tonic::Status;
 use uuid::Uuid;
+use std::os::unix::fs::PermissionsExt;
+use nix::unistd::{chown, Gid, Uid};
 
 const ROOT_HASH_LABEL: &str = "io.katacontainers.dm-verity.root-hash";
 const TARGET_LAYER_DIGEST_LABEL: &str = "containerd.io/snapshot/cri.layer-digest";
@@ -227,6 +229,13 @@ impl Store {
             std::fs::create_dir_all(&overlay_upper)?;
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
+
+            set_permissions(&overlay_target, Permissions::from_mode(0o755))?;
+            chown(
+                &overlay_target,
+                Some(Uid::from_raw(0)), // Set user ownership to root (0)
+                Some(Gid::from_raw(0)), // Set group ownership to root (0)
+            ).map_err(|e| Status::internal(format!("Failed to set ownership for {:?}: {:?}", overlay_target, e)))?;
 
             
             // Perform an overlay mount 
