@@ -187,7 +187,7 @@ impl Store {
 
                 let status = Command::new("mount")
                     .arg(&src)
-                    .arg(&p)
+                    .arg(&mount_path)
                     .arg("-t")
                     .arg(&fs_type)
                     .arg("-o")
