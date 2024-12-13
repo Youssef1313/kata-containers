@@ -287,7 +287,7 @@ impl Store {
             let overlay_mount = api::types::Mount {
                 r#type: "bind".into(),
                 source: overlay_target.to_string_lossy().into(),
-                target: "/merged".into(), // This is the typical container rootfs mount point
+                target: String::new(), // This is the typical container rootfs mount point
                 options: vec!["bind".into(), "ro".into()], // Read-only for container image layers
             };
 
