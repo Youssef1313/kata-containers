@@ -230,23 +230,6 @@ impl Store {
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
 
-            // Preemptively copy all lowerdirs content into the upperdir
-            for layer_path in &mounted_layers {
-                info!("Copying content from lower layer {:?} to upperdir {:?}", layer_path, overlay_upper);
-                let status = Command::new("cp")
-                    .arg("-a") // Preserve attributes and copy recursively
-                    .arg(layer_path)
-                    .arg(&overlay_upper)
-                    .status()?;
-                if !status.success() {
-                    return Err(Status::internal(format!(
-                        "Failed to copy content from layer {:?} to upperdir {:?}",
-                        layer_path, overlay_upper
-                    )));
-                }
-            }
-            
-            // Perform an overlay mount 
             let lowerdirs = mounted_layers
                 .iter()
                 .map(|layer| layer.to_string_lossy().into_owned())
@@ -256,6 +239,40 @@ impl Store {
                 "Multiple overlay mount with lowerdirs: {} at {:?}",
                 lowerdirs, overlay_target
             );
+
+            for entry in fs::read_dir(Path::new(&lowerdirs))? {
+                let entry = entry?;
+                let path = entry.path();
+        
+                if path.is_dir() {
+                    let relative_path = path.strip_prefix(&lowerdirs).unwrap();
+                    let target_path = overlay_upper.join(relative_path);
+        
+                    // Create the corresponding directory in the upperdir
+                    fs::create_dir_all(&target_path)?;
+        
+                    // Recursively replicate structure for subdirectories
+                    let mut stack = vec![path];
+                    while let Some(current_dir) = stack.pop() {
+                        for sub_entry in fs::read_dir(&current_dir)? {
+                            let sub_entry = sub_entry?;
+                            let sub_path = sub_entry.path();
+        
+                            if sub_path.is_dir() {
+                                let sub_relative_path =
+                                    sub_path.strip_prefix(&lowerdirs).unwrap();
+                                let sub_target_path = overlay_upper.join(sub_relative_path);
+                                fs::create_dir_all(&sub_target_path)?;
+                                stack.push(sub_path);
+                            }
+                        }
+                    }
+                }
+            }
+        
+            info!("Directory structure replication complete.");
+
+            // Perform an overlay mount 
             let status = Command::new("mount")
                 .arg("none")
                 .arg(&overlay_target)
