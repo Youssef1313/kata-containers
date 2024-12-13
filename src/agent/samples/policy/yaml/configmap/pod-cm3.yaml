@@ -23,7 +23,7 @@ spec:
       image: "mcr.microsoft.com/aks/e2e/library-busybox:master.220314.1-linux-amd64"
       resources:
         limits:
-          memory: "2Gi"
+          memory: 2Gi
       securityContext:
         privileged: true
       envFrom:

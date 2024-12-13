@@ -79,7 +79,7 @@ spec:
     - image: "registry.k8s.io/pause:3.8"
       resources:
         limits:
-          memory: "2Gi"
+          memory: 2Gi
       imagePullPolicy: IfNotPresent
       name: pod3
       securityContext:

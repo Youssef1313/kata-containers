@@ -18,6 +18,6 @@ spec:
           image: "registry.k8s.io/e2e-test-images/busybox:1.29-2"
           resources:
             limits:
-              memory: "2Gi"
+              memory: 2Gi
           command:
             - sh

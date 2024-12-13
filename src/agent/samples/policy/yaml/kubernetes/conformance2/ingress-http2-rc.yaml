@@ -21,7 +21,7 @@ spec:
           image: "registry.k8s.io/e2e-test-images/agnhost:2.40"
           resources:
             limits:
-              memory: "2Gi"
+              memory: 2Gi
           command:
             - /agnhost
             - netexec

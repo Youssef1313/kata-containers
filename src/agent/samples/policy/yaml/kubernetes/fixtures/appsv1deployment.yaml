@@ -23,6 +23,6 @@ spec:
           image: "marinerconfpodstest.azurecr.io/azurelinux/base/nginx:1.25"
           resources:
             limits:
-              memory: "2Gi"
+              memory: 2Gi
           ports:
             - containerPort: 80

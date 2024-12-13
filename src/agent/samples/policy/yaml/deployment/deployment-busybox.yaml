@@ -24,4 +24,4 @@ spec:
           name: busybox-deployment
           resources:
             limits:
-              memory: "2Gi"
+              memory: 2Gi

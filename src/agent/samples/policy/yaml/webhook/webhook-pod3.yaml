@@ -89,7 +89,7 @@ spec:
       name: secret-test
       resources:
         limits:
-          memory: "2Gi"
+          memory: 2Gi
       terminationMessagePath: /dev/termination-log
       terminationMessagePolicy: File
       volumeMounts:

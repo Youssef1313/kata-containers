@@ -20,7 +20,7 @@ spec:
       image: "mcr.microsoft.com/mirror/docker/library/ubuntu:18.04"
       resources:
         limits:
-          memory: "2Gi"
+          memory: 2Gi
       command:
         - /bin/bash
         - "-c"

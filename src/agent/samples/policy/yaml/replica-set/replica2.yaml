@@ -21,9 +21,9 @@ spec:
       containers:
         - name: busy
           image: "mcr.microsoft.com/aks/e2e/library-busybox:master.220314.1-linux-amd64"
-        resources:
-          limits:
-            memory: "2Gi"
+          resources:
+            limits:
+              memory: 2Gi
           ports:
             - containerPort: 6379
   replicas: 3

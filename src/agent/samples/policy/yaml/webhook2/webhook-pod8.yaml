@@ -76,7 +76,7 @@ spec:
       name: dapi-container
       resources:
         limits:
-          memory: "2Gi"
+          memory: 2Gi
       terminationMessagePath: /dev/termination-log
       terminationMessagePolicy: File
       volumeMounts:

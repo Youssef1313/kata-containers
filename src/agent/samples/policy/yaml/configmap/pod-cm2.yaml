@@ -28,7 +28,7 @@ spec:
       image: "mcr.microsoft.com/aks/e2e/library-busybox:master.220314.1-linux-amd64"
       resources:
         limits:
-          memory: "1Gi"
+          memory: 1Gi
       securityContext:
         runAsUser: 123
       volumeMounts:
@@ -46,7 +46,7 @@ spec:
       image: "mcr.microsoft.com/aks/e2e/library-busybox:master.220314.1-linux-amd64"
       resources:
         limits:
-          memory: "1Gi"
+          memory: 1Gi
       securityContext:
         runAsUser: 321
       volumeMounts:

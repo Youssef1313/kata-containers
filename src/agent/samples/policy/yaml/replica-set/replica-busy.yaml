@@ -27,7 +27,7 @@ spec:
               value: dns
           resources:
             limits:
-              memory: "2Gi"
+              memory: 2Gi
           ports:
             - containerPort: 6379
   replicas: 2
