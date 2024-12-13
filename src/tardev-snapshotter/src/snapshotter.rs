@@ -272,17 +272,21 @@ impl Store {
 
             // Return a mount structure for `runc`
             let overlay_mount = api::types::Mount {
-                r#type: "bind".into(),
-                source: overlay_target.to_string_lossy().into(),
-                target: "/".into(),
-                options: vec!["bind".into(), "rbind".into(), "rw".into()],
+                r#type: "overlay".into(),
+                source: "none".into(), // Overlay mounts use "none" as the source
+                target: "/".into(),    // This will serve as the container's rootfs
+                options: vec![
+                    format!("lowerdir={}", lowerdirs),
+                    format!("upperdir={}", overlay_upper.to_string_lossy()),
+                    format!("workdir={}", overlay_work.to_string_lossy()),
+                ],
             };
 
             info!(
-                "mounts_from_snapshot(): returning mount struct for runc: type={}, source={}, target={}, options={:?}",
+                "mounts_from_snapshot(): returning overlay mount struct for runc: type={}, source={}, target={}, options={:?}",
                 overlay_mount.r#type, overlay_mount.source, overlay_mount.target, overlay_mount.options
             );
-
+        
             return Ok(vec![overlay_mount]);
         }
 
