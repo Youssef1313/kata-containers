@@ -228,47 +228,28 @@ impl Store {
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
 
-            if mounted_layers.len() == 1 {
-                // Perform a bind mount if only one layer exists
-                let single_layer = &mounted_layers[0];
-                info!(
-                    "single bind mount from {:?} to {:?}",
-                    single_layer, overlay_target
-                );
-                let status = Command::new("mount")
-                    .arg(single_layer)
-                    .arg(&overlay_target)
-                    .args(&["-t", "bind", "-o", "bind"])
+            
+            // Perform an overlay mount 
+            let lowerdirs = mounted_layers
+                .iter()
+                .map(|layer| layer.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(":");
+            info!(
+                "Multiple overlay mount with lowerdirs: {} at {:?}",
+                lowerdirs, overlay_target
+            );
+            let status = Command::new("mount")
+                .arg("none")
+                .arg(&overlay_target)
+                .args(&["-t", "overlay","-o", &format!("lowerdir={},upperdir={},workdir={}",
+                    lowerdirs, overlay_upper.to_string_lossy(), overlay_work.to_string_lossy()),])
                     .status()?;
-                if !status.success() {
-                    return Err(Status::internal(format!(
-                        "Failed to perform bind mount from {:?} to {:?}",
-                        single_layer, overlay_target
-                    )));
-                }
-            } else {
-                // Perform an overlay mount if multiple layers exist
-                let lowerdirs = mounted_layers
-                    .iter()
-                    .map(|layer| layer.to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-                    .join(":");
-                info!(
-                    "Multiple overlay mount with lowerdirs: {} at {:?}",
-                    lowerdirs, overlay_target
-                );
-                let status = Command::new("mount")
-                    .arg("none")
-                    .arg(&overlay_target)
-                    .args(&["-t", "overlay","-o", &format!("lowerdir={},upperdir={},workdir={}",
-                        lowerdirs, overlay_upper.to_string_lossy(), overlay_work.to_string_lossy()),])
-                        .status()?;
-                if !status.success() {
-                    return Err(Status::internal(format!(
-                        "Failed to perform overlay mount at {:?}",
-                        overlay_target
-                    )));
-                }
+            if !status.success() {
+                return Err(Status::internal(format!(
+                    "Failed to perform overlay mount at {:?}",
+                    overlay_target
+                )));
             }
 
             info!("Overlay mount completed at {:?}", overlay_target);
