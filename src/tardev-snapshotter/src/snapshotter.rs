@@ -240,6 +240,16 @@ impl Store {
                 overlay_upper
                 )));
             }
+            let status = Command::new("chmod")
+                .arg("0755")
+                .arg(&overlay_work)
+                .status()?;
+            if !status.success() {
+                return Err(Status::internal(format!(
+                    "Failed to set permissions for {:?}",
+                overlay_work
+                )));
+            }
 
             
             // Perform an overlay mount 
