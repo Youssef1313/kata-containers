@@ -230,22 +230,6 @@ impl Store {
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
 
-            let status = Command::new("chmod")
-                .arg("0755")
-                .arg(&overlay_target)
-                .status()?;
-            if !status.success() {
-                return Err(Status::internal(format!(
-                    "Failed to set permissions for {:?}",
-                overlay_target
-                )));
-            }
-            chown(
-                &overlay_target,
-                Some(Uid::from_raw(0)), // Set user ownership to root (0)
-                Some(Gid::from_raw(0)), // Set group ownership to root (0)
-            ).map_err(|e| Status::internal(format!("Failed to set ownership for {:?}: {:?}", overlay_target, e)))?;
-
             
             // Perform an overlay mount 
             let lowerdirs = mounted_layers
@@ -269,6 +253,23 @@ impl Store {
                     overlay_target
                 )));
             }
+
+            let status = Command::new("chmod")
+                .arg("0755")
+                .arg(&overlay_target)
+                .status()?;
+            if !status.success() {
+                return Err(Status::internal(format!(
+                    "Failed to set permissions for {:?}",
+                overlay_target
+                )));
+            }
+            //chown(
+            //    &overlay_target,
+            //    Some(Uid::from_raw(0)), // Set user ownership to root (0)
+            //    Some(Gid::from_raw(0)), // Set group ownership to root (0)
+            //).map_err(|e| Status::internal(format!("Failed to set ownership for {:?}: {:?}", overlay_target, e)))?;
+            
 
             info!("Overlay mount completed at {:?}", overlay_target);
 
