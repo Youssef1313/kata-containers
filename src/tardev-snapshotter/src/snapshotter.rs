@@ -220,8 +220,12 @@ impl Store {
 
         if do_mount {
             info!("mounts_from_snapshot(): perform overlay mounting");
-
             let overlay_target = self.root.join("overlay").join(Uuid::new_v4().to_string());
+            let overlay_upper = overlay_target.join("upper");
+            let overlay_work = overlay_target.join("work");
+
+            std::fs::create_dir_all(&overlay_upper)?;
+            std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
 
             if mounted_layers.len() == 1 {
@@ -256,8 +260,9 @@ impl Store {
                 let status = Command::new("mount")
                     .arg("none")
                     .arg(&overlay_target)
-                    .args(&["-t", "overlay", "-o", &format!("lowerdir={}", lowerdirs)])
-                    .status()?;
+                    .args(&["-t", "overlay","-o", &format!("lowerdir={},upperdir={},workdir={}",
+                        lowerdirs, overlay_upper.to_string_lossy(), overlay_work.to_string_lossy()),])
+                        .status()?;
                 if !status.success() {
                     return Err(Status::internal(format!(
                         "Failed to perform overlay mount at {:?}",
@@ -284,12 +289,18 @@ impl Store {
                 }
             }
 
+            // Return a mount structure for `runc`
             let overlay_mount = api::types::Mount {
                 r#type: "bind".into(),
                 source: overlay_target.to_string_lossy().into(),
-                target: String::new(), // This is the typical container rootfs mount point
-                options: vec!["bind".into(), "ro".into()], // Read-only for container image layers
+                target: "/rootfs".into(),
+                options: vec!["bind".into()],
             };
+
+            info!(
+                "mounts_from_snapshot(): returning mount struct for runc: type={}, source={}, target={}, options={:?}",
+                overlay_mount.r#type, overlay_mount.source, overlay_mount.target, overlay_mount.options
+            );
 
             return Ok(vec![overlay_mount]);
         }
