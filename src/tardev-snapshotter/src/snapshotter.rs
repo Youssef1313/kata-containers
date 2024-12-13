@@ -282,17 +282,26 @@ impl Store {
                     info!("Successfully unmounted layer at {:?}", layer_path);
                 }
             }
+
+            let overlay_mount = api::types::Mount {
+                r#type: "bind".into(),
+                source: overlay_target.to_string_lossy().into(),
+                target: "/merged".into(), // This is the typical container rootfs mount point
+                options: vec!["bind".into(), "ro".into()], // Read-only for container image layers
+            };
+
+            return Ok(vec![overlay_mount]);
         }
 
         opts.push(format!("{PREFIX}.overlay-rw"));
         opts.push(format!("lowerdir={}", layers.join(":")));
 
-        Ok(vec![api::types::Mount {
+        return Ok(vec![api::types::Mount {
             r#type: "fuse3.kata-overlay".into(),
             source: "/".into(),
             target: String::new(),
             options: opts,
-        }])
+        }]);
     }
 }
 
