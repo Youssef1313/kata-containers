@@ -8,6 +8,7 @@ use std::{collections::HashMap, fs, fs::OpenOptions, io, io::Seek, os::unix::ffi
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tonic::Status;
+use uuid::Uuid;
 
 const ROOT_HASH_LABEL: &str = "io.katacontainers.dm-verity.root-hash";
 const TARGET_LAYER_DIGEST_LABEL: &str = "containerd.io/snapshot/cri.layer-digest";
@@ -220,7 +221,7 @@ impl Store {
         if do_mount {
             info!("mounts_from_snapshot(): perform overlay mounting");
 
-            let overlay_target = self.root.join("overlay_mounted");
+            let overlay_target = self.root.join("overlay_mounted").join(Uuid::new_v4().to_string());
             std::fs::create_dir_all(&overlay_target)?;
 
             if mounted_layers.len() == 1 {
