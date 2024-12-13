@@ -194,7 +194,7 @@ impl Store {
                     .arg("-t")
                     .arg(&fs_type)
                     .arg("-o")
-                    .arg("exec")
+                    .arg(&fs_opts)
                     .status()?;
                 if !status.success() {
                     return Err(Status::internal(format!(
@@ -230,27 +230,21 @@ impl Store {
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
 
-            let status = Command::new("chmod")
-                .arg("0755")
-                .arg(&overlay_upper)
-                .status()?;
-            if !status.success() {
-                return Err(Status::internal(format!(
-                    "Failed to set permissions for {:?}",
-                overlay_upper
-                )));
+            // Preemptively copy all lowerdirs content into the upperdir
+            for layer_path in &mounted_layers {
+                info!("Copying content from lower layer {:?} to upperdir {:?}", layer_path, overlay_upper);
+                let status = Command::new("cp")
+                    .arg("-a") // Preserve attributes and copy recursively
+                    .arg(layer_path)
+                    .arg(&overlay_upper)
+                    .status()?;
+                if !status.success() {
+                    return Err(Status::internal(format!(
+                        "Failed to copy content from layer {:?} to upperdir {:?}",
+                        layer_path, overlay_upper
+                    )));
+                }
             }
-            let status = Command::new("chmod")
-                .arg("0755")
-                .arg(&overlay_work)
-                .status()?;
-            if !status.success() {
-                return Err(Status::internal(format!(
-                    "Failed to set permissions for {:?}",
-                overlay_work
-                )));
-            }
-
             
             // Perform an overlay mount 
             let lowerdirs = mounted_layers
