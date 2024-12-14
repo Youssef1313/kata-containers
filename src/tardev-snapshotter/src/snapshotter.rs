@@ -194,7 +194,7 @@ impl Store {
                     .arg("-t")
                     .arg(&fs_type)
                     .arg("-o")
-                    .arg("ro,exec")
+                    .arg("ro")
                     .status()?;
                 if !status.success() {
                     return Err(Status::internal(format!(
