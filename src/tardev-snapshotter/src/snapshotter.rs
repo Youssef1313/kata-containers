@@ -229,6 +229,7 @@ impl Store {
             std::fs::create_dir_all(&overlay_upper)?;
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
+            
 
             let lowerdirs = mounted_layers
                 .iter()
@@ -250,6 +251,7 @@ impl Store {
         
                     // Create the corresponding directory in the upperdir
                     fs::create_dir_all(&target_path)?;
+                    fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755))?;
         
                     // Recursively replicate structure for subdirectories
                     let mut stack = vec![path];
@@ -263,6 +265,7 @@ impl Store {
                                     sub_path.strip_prefix(&lowerdirs).unwrap();
                                 let sub_target_path = overlay_upper.join(sub_relative_path);
                                 fs::create_dir_all(&sub_target_path)?;
+                                fs::set_permissions(&sub_target_path, fs::Permissions::from_mode(0o755))?;
                                 stack.push(sub_path);
                             }
                         }
