@@ -229,6 +229,7 @@ impl Store {
             std::fs::create_dir_all(&overlay_upper)?;
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
+            fs::set_permissions(&overlay_upper, fs::Permissions::from_mode(0o755))?;
             
 
             let lowerdirs = mounted_layers
