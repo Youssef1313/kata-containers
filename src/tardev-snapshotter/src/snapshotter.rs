@@ -306,7 +306,7 @@ impl Store {
 
             // Return a mount structure for `runc`
             let overlay_mount = api::types::Mount {
-                r#type: "bind".into(),
+                r#type: "fuse3.kata-overlay".into(),
                 source: overlay_target.to_string_lossy().into(),
                 target: "/".into(),
                 options: vec!["bind".into(), "rbind".into(), "rw".into()],
