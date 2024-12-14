@@ -308,7 +308,7 @@ impl Store {
             let overlay_mount = api::types::Mount {
                 r#type: "bind".into(),
                 source: overlay_target.to_string_lossy().into(),
-                target: String::new(),
+                target: "/rootfs".into(),
                 options: vec!["rbind".into(), "rw".into()],
             };
 
