@@ -418,7 +418,8 @@ func doMount(mounts []*containerd_types.Mount, rootfs string) error {
 			Options: rm.Options,
 		}
 		if err := m.Mount(rootfs); err != nil {
-			return errors.Wrapf(err, "failed to mount rootfs component %v", m)
+			return errors.Wrapf(err, "rootfs str: %s", rootfs)
+			//return errors.Wrapf(err, "failed to mount rootfs:%s component %v", rootfs, m)
 		}
 	}
 	return nil
