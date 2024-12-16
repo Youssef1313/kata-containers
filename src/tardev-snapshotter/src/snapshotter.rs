@@ -4,13 +4,16 @@ use containerd_snapshots::{api, Info, Kind, Snapshotter, Usage};
 use log::{debug, info, trace, error};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::{collections::HashMap, fs, fs::OpenOptions, io, io::Seek, os::unix::ffi::OsStrExt, process::Command};
+use std::{collections::HashMap, fs, fs::OpenOptions, fs::File, io, io::Read, io::Seek, os::unix::ffi::OsStrExt, process::Command};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tonic::Status;
 use uuid::Uuid;
 use std::os::unix::fs::PermissionsExt;
 //use nix::unistd::{chown, Gid, Uid};
+use anyhow::{anyhow, Context, Result};
+use zerocopy::AsBytes;
+use nix::mount::MsFlags;
 
 const ROOT_HASH_LABEL: &str = "io.katacontainers.dm-verity.root-hash";
 const TARGET_LAYER_DIGEST_LABEL: &str = "containerd.io/snapshot/cri.layer-digest";
@@ -120,6 +123,210 @@ impl Store {
         Ok(mounts)
     }
 
+    // ported over from kata agent
+    // prepares a dm-verity target configuration by reading metadata from a file (block/loop device) 
+    // and returning the parameters required to set up the device-mapper verity target
+    fn prepare_dm_target(&self, path: &str, hash: &str) -> Result<(u64, u64, String, String)> {
+        info!("prepare_dm_target for loop device");
+        let mut file = File::open(path)?;
+        let size = file.seek(std::io::SeekFrom::End(0))?;
+        if size < 4096 {
+            return Err(anyhow!("loop device ({path}) is too small: {size}"));
+        }
+
+        // last 4096 bytes of loop device is superblock
+        file.seek(std::io::SeekFrom::End(-4096))?;
+        let mut buf = [0u8; 4096];
+        file.read_exact(&mut buf)?;
+
+        // parse super block
+        let mut sb = verity::SuperBlock::default();
+        sb.as_bytes_mut()
+            .copy_from_slice(&buf[4096 - 512..][..std::mem::size_of::<verity::SuperBlock>()]);
+        let data_block_size = u64::from(sb.data_block_size.get());
+        let hash_block_size = u64::from(sb.hash_block_size.get());
+        let data_size = sb
+            .data_block_count
+            .get()
+            .checked_mul(data_block_size)
+            .ok_or_else(|| anyhow!("Invalid data size"))?;
+        if data_size > size {
+            return Err(anyhow!(
+                "Data size ({data_size}) is greater than device size ({size}) for device {path}"
+            ));
+        }
+
+        // generate dm-verity table, use all zero salt
+        // TODO: Store other parameters in super block: version, hash type, salt.
+        Ok((
+            0,
+            data_size / 512,
+            "verity".into(),
+            format!(
+                "1 {path} {path} {data_block_size} {hash_block_size
+    } {} {} sha256 {hash} 0000000000000000000000000000000000000000000000000000000000000000",
+                data_size / data_block_size,
+                (data_size + hash_block_size - 1) / hash_block_size
+            ),
+        ))
+    }
+
+    // Creates dm-verity device for a given layer file
+    fn create_dm_verity_device(&self, layer_path: &str, root_hash: &str) -> Result<String> {
+        let dm =  devicemapper::DM::new()?;
+        let layer_name = Path::new(layer_path)
+            .file_name()
+            .ok_or_else(|| anyhow!("Unable to get file name from layer path"))?
+            .to_str()
+            .ok_or_else(|| anyhow!("Unable to convert file name to UTF-8 string"))?;
+        info!("create_dm_verity_device for layer: {}", layer_name);
+
+        let name = devicemapper::DmName::new(&layer_name)?;
+        let opts = devicemapper::DmOptions::default().set_flags(devicemapper::DmFlags::DM_READONLY);
+
+        if let Err(e) = dm.device_create(name, None, opts) {
+            info!("Failed to create Device Mapper device: {:?}", e);
+            return Err(e.into());
+        }
+        let id = devicemapper::DevId::Name(name);
+
+        let result = (|| {
+            // Step 1: Set up loop device for the given layer_path
+            let setup_output = Command::new("losetup")
+                .arg("-fP")
+                .arg(layer_path)
+                .output()
+                .expect("Failed to execute losetup command to create loop device");
+
+            if !setup_output.status.success() {
+                info!(
+                    "Failed to set up loop device: {:?}",
+                    String::from_utf8_lossy(&setup_output.stderr)
+                );
+                return Err(anyhow::anyhow!(
+                    "Failed to set up loop device: {:?}",
+                    String::from_utf8_lossy(&setup_output.stderr)
+                ));
+            }
+            info!("set up loop device");
+
+            // Step 2: Find the loop device associated with the file
+            let loop_output = Command::new("losetup")
+                .arg("-a")
+                .output()
+                .expect("Failed to list loop devices");
+
+            let loop_output_str = String::from_utf8_lossy(&loop_output.stdout);
+            let loop_device = loop_output_str
+                .lines()
+                .find(|line| line.contains(layer_path))
+                .and_then(|line| line.split(":").next())
+                .ok_or_else(|| anyhow::anyhow!("Could not find loop device for {}", layer_path))?;
+
+            info!("selected newly created loop device: {}", loop_device);
+
+            // Use the loop device path for DM-Verity
+            let device_path = loop_device;
+
+            // Step 3: Prepare DM-Verity target
+            let target = self.prepare_dm_target(device_path, root_hash)?;
+
+            // Step 4: Load the DM table for DM-Verity
+            dm.table_load(&id, &[target], opts)
+                .context("Unable to load DM-Verity table")?;
+            info!("loaded DM table for DM-Verity");
+
+            // Step 5: Suspend the DM device to make it active
+            dm.device_suspend(&id, opts)
+                .context("Unable to suspend DM device")?;
+            info!("suspended DM device for activation");
+
+            // Step 6: Return success, with the path of the DM-Verity device
+            Ok(format!("/dev/mapper/{}", layer_name))
+        })();
+
+        // If there is an error, remove the DM device and clean up the loop device
+        result.map_err(|e| {
+            // Remove the DM device if it was created
+            if let Err(remove_err) = dm.device_remove(&id, devicemapper::DmOptions::default()) {
+                info!(
+                    "Unable to remove DM device ({}): {:?}", 
+                    layer_name, 
+                    remove_err
+                );
+            }
+
+            // Clean up the loop device
+            info!("Cleaning up loop device: {}", layer_path);
+            let detach_output = Command::new("losetup")
+                .arg("-d")
+                .arg(layer_path)
+                .output()
+                .expect("Failed to execute losetup detach command");
+
+            if !detach_output.status.success() {
+                info!(
+                    "Failed to detach loop device: {:?}",
+                    String::from_utf8_lossy(&detach_output.stderr)
+                );
+            } else {
+                info!("Successfully detached loop device: {}", layer_path);
+            }
+
+            info!("Error occurred during DM-Verity setup: {:?}", e);
+            e
+        })
+    }
+
+    /// Mounts a DM-Verity device to a specified path.
+    fn mount_dm_verity_device(
+        &self,
+        source: &str,
+        target: &str,
+        fstype: &str,
+        options: &str,
+        flags: MsFlags,
+    ) -> Result<()> {
+        if source.is_empty() {
+            return Err(anyhow!("Source path for mounting cannot be empty."));
+        }
+        if target.is_empty() {
+            return Err(anyhow!("Target path for mounting cannot be empty."));
+        }
+        if fstype.is_empty() {
+            return Err(anyhow!("Filesystem type cannot be empty."));
+        }
+
+        let source_path = Path::new(source);
+        let target_path = Path::new(target);
+
+        // Ensure the target directory exists
+        if !target_path.exists() {
+            fs::create_dir_all(target_path)
+                .with_context(|| format!("Failed to create mount point: {}", target))?;
+        }
+
+        // Attempt the mount operation
+        nix::mount::mount(
+            Some(source_path),
+            target_path,
+            Some(fstype),
+            flags,
+            Some(options),
+        )
+        .map_err(|e| {
+            anyhow!(
+                "Failed to mount {} to {} with error: {}",
+                source,
+                target,
+                e
+            )
+        })?;
+
+        Ok(())
+    }
+
+
     fn mounts_from_snapshot(&self, parent: &str, do_mount: bool) -> Result<Vec<api::types::Mount>, Status> {
         const PREFIX: &str = "io.katacontainers.fs-opt";
 
@@ -154,7 +361,7 @@ impl Store {
             info!("mounts_from_snapshot(): processing snapshots: {}, layername: {}", &info.name, &name);
 
             if do_mount {
-                info!("mounts_from_snapshot(): performing tarfs mounting");
+                info!("mounts_from_snapshot(): performing tarfs mounting via dm-verity");
                 // Extract layer information
                 let mut fields = layer_info.split(',');
                 let src = if let Some(p) = fields.next() {
@@ -188,25 +395,55 @@ impl Store {
                 info!("mount_path: {}", mount_path.display());
                 std::fs::create_dir_all(&mount_path)?;
 
-                let status = Command::new("mount")
-                    .arg(&src)
-                    .arg(&mount_path)
-                    .arg("-t")
-                    .arg(&fs_type)
-                    .arg("-o")
-                    .arg("ro")
-                    .status()?;
-                if !status.success() {
-                    return Err(Status::internal(format!(
-                        "Failed to mount layer from source {:?} with status {status}",
-                        src
-                    )));
-                }
-
+                // Step 1: Create a dm-verity device for the tarfs layer
+                let dm_verity_device = self
+                    .create_dm_verity_device(src.to_str().unwrap(), root_hash)
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Failed to create dm-verity device for source {:?}: {:?}",
+                            src, e
+                        ))
+                    })?;
                 info!(
-                    "mounts_from_snapshot(): mounting layer {} from source {:?} to {:?} with fs_type {} and options {}",
-                    &name, &src, &mount_path, &fs_type, &fs_opts
+                    "created dm-verity device for layer {}: {}",
+                    name, dm_verity_device
                 );
+
+                // Step 2: Mount the dm-verity device to the mount path
+                //let mount_options = "ro"; // Read-only to ensure integrity
+                let flags = MsFlags::MS_RDONLY; // Equivalent mount flag
+                self.mount_dm_verity_device(&dm_verity_device, mount_path.to_str().unwrap(), fs_type, &fs_opts, flags)
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Failed to mount dm-verity device {} to {:?}: {:?}",
+                            dm_verity_device, mount_path, e
+                        ))
+                    })?;
+                info!(
+                    "mounted single layer dm-verity device {} to {:?}",
+                    dm_verity_device, mount_path
+                );
+
+                // old direct mounting mechanism
+                //let status = Command::new("mount")
+                //    .arg(&src)
+                //    .arg(&mount_path)
+                //    .arg("-t")
+                //    .arg(&fs_type)
+                //    .arg("-o")
+                //    .arg("ro")
+                //    .status()?;
+                //if !status.success() {
+                //    return Err(Status::internal(format!(
+                //        "Failed to mount layer from source {:?} with status {status}",
+                //        src
+                //    )));
+                //}
+
+                //info!(
+                //    "mounts_from_snapshot(): mounting layer {} from source {:?} to {:?} with fs_type {} and options {}",
+                //    &name, &src, &mount_path, &fs_type, &fs_opts
+                //);
                 mounted_layers.push(mount_path.clone());
             }
 
@@ -230,50 +467,48 @@ impl Store {
             std::fs::create_dir_all(&overlay_work)?;
             std::fs::create_dir_all(&overlay_target)?;
             fs::set_permissions(&overlay_upper, fs::Permissions::from_mode(0o755))?;
+            fs::set_permissions(&overlay_work, fs::Permissions::from_mode(0o755))?;
             
-
+           // Prepare the list of lowerdirs from mounted dm-verity layers
             let lowerdirs = mounted_layers
                 .iter()
                 .map(|layer| layer.to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
                 .join(":");
-            info!(
-                "Multiple overlay mount with lowerdirs: {} at {:?}",
-                lowerdirs, overlay_target
-            );
+            info!("Combining dm-verity layers into overlay lowerdirs: {}", lowerdirs);
 
-            for entry in fs::read_dir(Path::new(&lowerdirs))? {
-                let entry = entry?;
-                let path = entry.path();
-        
-                if path.is_dir() {
-                    let relative_path = path.strip_prefix(&lowerdirs).unwrap();
-                    let target_path = overlay_upper.join(relative_path);
-        
-                    // Create the corresponding directory in the upperdir
-                    fs::create_dir_all(&target_path)?;
-                    fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755))?;
-        
-                    // Recursively replicate structure for subdirectories
-                    let mut stack = vec![path];
-                    while let Some(current_dir) = stack.pop() {
-                        for sub_entry in fs::read_dir(&current_dir)? {
-                            let sub_entry = sub_entry?;
-                            let sub_path = sub_entry.path();
-        
-                            if sub_path.is_dir() {
-                                let sub_relative_path =
-                                    sub_path.strip_prefix(&lowerdirs).unwrap();
-                                let sub_target_path = overlay_upper.join(sub_relative_path);
-                                fs::create_dir_all(&sub_target_path)?;
-                                fs::set_permissions(&sub_target_path, fs::Permissions::from_mode(0o755))?;
-                                stack.push(sub_path);
+            // Replicate directory structure in the upperdir (if needed)
+            for layer_path in &mounted_layers {
+                let layer_root = Path::new(layer_path);
+                for entry in fs::read_dir(layer_root)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let relative_path = path.strip_prefix(layer_root).unwrap();
+                        let target_path = overlay_upper.join(relative_path);
+
+                        // Create the corresponding directory in the upperdir
+                        fs::create_dir_all(&target_path)?;
+                        fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755))?;
+                        // Recursively replicate structure for subdirectories
+                        let mut stack = vec![path];
+                        while let Some(current_dir) = stack.pop() {
+                            for sub_entry in fs::read_dir(&current_dir)? {
+                                let sub_entry = sub_entry?;
+                                let sub_path = sub_entry.path();
+                                if sub_path.is_dir() {
+                                    let sub_relative_path =
+                                        sub_path.strip_prefix(layer_root).unwrap();
+                                    let sub_target_path = overlay_upper.join(sub_relative_path);
+                                    fs::create_dir_all(&sub_target_path)?;
+                                    fs::set_permissions(&sub_target_path, fs::Permissions::from_mode(0o755))?;
+                                    stack.push(sub_path);
+                                }
                             }
                         }
                     }
                 }
             }
-        
             info!("Directory structure replication complete.");
 
             // Perform an overlay mount 
@@ -289,22 +524,36 @@ impl Store {
                     overlay_target
                 )));
             }
-            
             info!("Overlay mount completed at {:?}", overlay_target);
 
-            // Unmount individual layers after the overlay is created
+            // Clean up dm-verity and loop devices
             for layer_path in &mounted_layers {
-                info!("Unmounting layer at {:?}", layer_path);
-                let status = Command::new("umount")
-                    .arg(layer_path)
-                    .status()?;
+                // Unmount dm-verity device
+                info!("unmounting dm-verity layer at {:?}", layer_path);
+                let status = Command::new("umount").arg(layer_path).status()?;
                 if !status.success() {
-                    error!(
-                        "Failed to unmount layer at {:?}, status: {status}",
-                        layer_path
-                    );
+                    error!("Failed to unmount dm-verity layer at {:?}, status: {status}", layer_path);
                 } else {
-                    info!("Successfully unmounted layer at {:?}", layer_path);
+                    info!("Successfully unmounted dm-verity layer at {:?}", layer_path);
+                    // Remove dm-verity device
+                    let dm_name = Path::new(layer_path)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .ok_or_else(|| tonic::Status::internal(format!("Invalid dm-verity device path: {:?}", layer_path)))?;
+                    let status = Command::new("dmsetup").arg("remove").arg(dm_name).status()?;
+                    if !status.success() {
+                        error!("Failed to remove dm-verity device: {}", dm_name);
+                    } else {
+                        info!("Successfully removed dm-verity device: {}", dm_name);
+                    }
+
+                    // Detach loop device
+                    let status = Command::new("losetup").arg("-d").arg(layer_path).status()?;
+                    if !status.success() {
+                        error!("Failed to detach loop device for layer {:?}", layer_path);
+                    } else {
+                        info!("Successfully detached loop device for layer {:?}", layer_path);
+                    }
                 }
             }
 
