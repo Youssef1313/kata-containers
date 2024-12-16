@@ -4,13 +4,13 @@ use containerd_snapshots::{api, Info, Kind, Snapshotter, Usage};
 use log::{debug, info, trace, error};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::{collections::HashMap, fs, fs::OpenOptions, fs::set_permissions, fs::Permissions, io, io::Seek, os::unix::ffi::OsStrExt, process::Command};
+use std::{collections::HashMap, fs, fs::OpenOptions, io, io::Seek, os::unix::ffi::OsStrExt, process::Command};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tonic::Status;
 use uuid::Uuid;
 use std::os::unix::fs::PermissionsExt;
-use nix::unistd::{chown, Gid, Uid};
+//use nix::unistd::{chown, Gid, Uid};
 
 const ROOT_HASH_LABEL: &str = "io.katacontainers.dm-verity.root-hash";
 const TARGET_LAYER_DIGEST_LABEL: &str = "containerd.io/snapshot/cri.layer-digest";
