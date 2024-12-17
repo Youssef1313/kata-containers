@@ -1,7 +1,7 @@
 use base64::prelude::{Engine, BASE64_STANDARD};
 use containerd_client::{services::v1::ReadContentRequest, tonic::Request, with_namespace, Client};
 use containerd_snapshots::{api, Info, Kind, Snapshotter, Usage};
-use log::{debug, info, trace, error};
+use log::{debug, info, trace};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, fs, fs::OpenOptions, fs::File, io, io::Read, io::Seek, os::unix::ffi::OsStrExt, process::Command};
@@ -183,6 +183,19 @@ impl Store {
 
         let name = devicemapper::DmName::new(&layer_name)?;
         let opts = devicemapper::DmOptions::default().set_flags(devicemapper::DmFlags::DM_READONLY);
+
+        // Step 1: Check if the DM-Verity device already exists
+        let dm_list_output = Command::new("dmsetup")
+            .arg("status")
+            .output()
+            .expect("Failed to execute dmsetup status command");
+
+        let dm_list_str = String::from_utf8_lossy(&dm_list_output.stdout);
+        if dm_list_str.contains(&layer_name) {
+            info!("DM-Verity device already exists for layer: {}", layer_name);
+            return Ok(format!("/dev/mapper/{}", layer_name));
+        }
+        info!("DM-Verity device does not exist; proceeding with creation.");
 
         if let Err(e) = dm.device_create(name, None, opts) {
             info!("Failed to create Device Mapper device: {:?}", e);
@@ -527,7 +540,7 @@ impl Store {
             info!("Overlay mount completed at {:?}", overlay_target);
 
             // Clean up dm-verity and loop devices
-            for layer_path in &mounted_layers {
+            /*for layer_path in &mounted_layers {
                 // Unmount dm-verity device
                 info!("unmounting dm-verity layer at {:?}", layer_path);
                 let status = Command::new("umount").arg(layer_path).status()?;
@@ -555,7 +568,7 @@ impl Store {
                         info!("Successfully detached loop device for layer {:?}", layer_path);
                     }
                 }
-            }
+            }*/
 
             // Return a mount structure for `runc`
             let overlay_mount = api::types::Mount {
