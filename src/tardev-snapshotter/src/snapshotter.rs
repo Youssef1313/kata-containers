@@ -184,19 +184,6 @@ impl Store {
         let name = devicemapper::DmName::new(&layer_name)?;
         let opts = devicemapper::DmOptions::default().set_flags(devicemapper::DmFlags::DM_READONLY);
 
-        // Step 1: Check if the DM-Verity device already exists
-        let dm_list_output = Command::new("dmsetup")
-            .arg("status")
-            .output()
-            .expect("Failed to execute dmsetup status command");
-
-        let dm_list_str = String::from_utf8_lossy(&dm_list_output.stdout);
-        if dm_list_str.contains(&layer_name) {
-            info!("DM-Verity device already exists for layer: {}", layer_name);
-            return Ok(format!("/dev/mapper/{}", layer_name));
-        }
-        info!("DM-Verity device does not exist; proceeding with creation.");
-
         if let Err(e) = dm.device_create(name, None, opts) {
             info!("Failed to create Device Mapper device: {:?}", e);
             return Err(e.into());
@@ -408,55 +395,55 @@ impl Store {
                 info!("mount_path: {}", mount_path.display());
                 std::fs::create_dir_all(&mount_path)?;
 
-                // Step 1: Create a dm-verity device for the tarfs layer
-                let dm_verity_device = self
-                    .create_dm_verity_device(src.to_str().unwrap(), root_hash)
-                    .map_err(|e| {
-                        Status::internal(format!(
-                            "Failed to create dm-verity device for source {:?}: {:?}",
-                            src, e
-                        ))
-                    })?;
-                info!(
-                    "created dm-verity device for layer {}: {}",
-                    name, dm_verity_device
-                );
+                // Step 0: Check if the dm-verity device already exists
+                let dm_verity_device = format!("/dev/mapper/{}", name);
+                if Path::new(&dm_verity_device).exists() {
+                    info!(
+                        "dm-verity device already exists for layer {}: {}",
+                        name, dm_verity_device
+                    );
+                } else {
+                    // Step 1:  Create a dm-verity device for the tarfs layer
+                    let created_dm_verity_device = self
+                        .create_dm_verity_device(src.to_str().unwrap(), root_hash)
+                        .map_err(|e| {
+                            Status::internal(format!(
+                                "Failed to create dm-verity device for source {:?}: {:?}",
+                                src, e
+                            ))
+                        })?;
+                    info!(
+                        "created dm-verity device for layer {}: {}",
+                        name, created_dm_verity_device
+                    );
+                }
 
-                // Step 2: Mount the dm-verity device to the mount path
-                //let mount_options = "ro"; // Read-only to ensure integrity
-                let flags = MsFlags::MS_RDONLY; // Equivalent mount flag
-                self.mount_dm_verity_device(&dm_verity_device, mount_path.to_str().unwrap(), fs_type, &fs_opts, flags)
-                    .map_err(|e| {
-                        Status::internal(format!(
-                            "Failed to mount dm-verity device {} to {:?}: {:?}",
-                            dm_verity_device, mount_path, e
-                        ))
-                    })?;
-                info!(
-                    "mounted single layer dm-verity device {} to {:?}",
-                    dm_verity_device, mount_path
-                );
+                // Step 2: Check if the mount path is already mounted
+                let mount_status = Command::new("mountpoint")
+                    .arg("-q")
+                    .arg(&mount_path)
+                    .status()?;
+                if mount_status.success() {
+                    info!(
+                        "Mount path {:?} is already mounted, skipping mounting.",
+                        mount_path
+                    );
+                } else {
+                    // Mount the dm-verity device to the mount path
+                    let flags = MsFlags::MS_RDONLY; // Read-only to ensure integrity
+                    self.mount_dm_verity_device(&dm_verity_device, mount_path.to_str().unwrap(), fs_type, &fs_opts, flags)
+                        .map_err(|e| {
+                            Status::internal(format!(
+                                "Failed to mount dm-verity device {} to {:?}: {:?}",
+                                dm_verity_device, mount_path, e
+                            ))
+                        })?;
+                    info!(
+                        "mounted single layer dm-verity device {} to {:?}",
+                        dm_verity_device, mount_path
+                    );
+                }
 
-                // old direct mounting mechanism
-                //let status = Command::new("mount")
-                //    .arg(&src)
-                //    .arg(&mount_path)
-                //    .arg("-t")
-                //    .arg(&fs_type)
-                //    .arg("-o")
-                //    .arg("ro")
-                //    .status()?;
-                //if !status.success() {
-                //    return Err(Status::internal(format!(
-                //        "Failed to mount layer from source {:?} with status {status}",
-                //        src
-                //    )));
-                //}
-
-                //info!(
-                //    "mounts_from_snapshot(): mounting layer {} from source {:?} to {:?} with fs_type {} and options {}",
-                //    &name, &src, &mount_path, &fs_type, &fs_opts
-                //);
                 mounted_layers.push(mount_path.clone());
             }
 
