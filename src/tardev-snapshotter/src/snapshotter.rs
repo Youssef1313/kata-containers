@@ -525,6 +525,7 @@ impl Store {
                 )));
             }
             info!("Overlay mount completed at {:?}", overlay_target);
+            mounted_layers.clear();
 
             // Clean up dm-verity and loop devices
             /*for layer_path in &mounted_layers {
