@@ -575,7 +575,7 @@ impl Store {
                 r#type: "bind".into(),
                 source: overlay_target.to_string_lossy().into(),
                 target: "/".into(),
-                options: vec!["rbind".into(), "rw".into()],
+                options: vec!["bind".into(), "rw".into()],
             };
 
             info!(
