@@ -478,7 +478,7 @@ impl Store {
             info!("Combining dm-verity layers into overlay lowerdirs: {}", lowerdirs);
 
             // Replicate directory structure in the upperdir (if needed)
-            for layer_path in &mounted_layers {
+            /*for layer_path in &mounted_layers {
                 let layer_root = Path::new(layer_path);
                 for entry in fs::read_dir(layer_root)? {
                     let entry = entry?;
@@ -509,7 +509,7 @@ impl Store {
                     }
                 }
             }
-            info!("Directory structure replication complete.");
+            info!("Directory structure replication complete.");*/
 
             // Perform an overlay mount 
             let status = Command::new("mount")
