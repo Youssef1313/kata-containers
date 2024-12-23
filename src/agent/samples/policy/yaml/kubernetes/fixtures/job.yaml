@@ -17,7 +17,7 @@ spec:
           image: "mcr.microsoft.com/acc/samples/acc-perl:1.0"
           resources:
             limits:
-              memory: "2Gi"
+              memory: 2Gi
           command:
             - perl
             - "-Mbignum=bpi"
