@@ -32,5 +32,8 @@ items:
           containers:
             - name: test-rc
               image: "marinerconfpodstest.azurecr.io/azurelinux/base/nginx:1.25"
+              resources:
+                limits:
+                  memory: "2Gi"
               ports:
                 - containerPort: 80

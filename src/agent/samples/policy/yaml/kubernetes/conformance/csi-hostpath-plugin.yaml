@@ -218,6 +218,9 @@ spec:
       containers:
         - name: hostpath
           image: "registry.k8s.io/sig-storage/hostpathplugin:v1.10.0"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "--drivername=hostpath.csi.k8s.io"
             - "--v=5"
@@ -258,6 +261,9 @@ spec:
               name: dev-dir
         - name: csi-external-health-monitor-controller
           image: "registry.k8s.io/sig-storage/csi-external-health-monitor-controller:v0.7.0"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -271,6 +277,9 @@ spec:
               mountPath: /csi
         - name: node-driver-registrar
           image: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.5.1"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "--v=5"
             - "--csi-address=/csi/csi.sock"
@@ -295,11 +304,17 @@ spec:
             - mountPath: /csi
               name: socket-dir
           image: "registry.k8s.io/sig-storage/livenessprobe:v2.7.0"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "--csi-address=/csi/csi.sock"
             - "--health-port=9898"
         - name: csi-attacher
           image: "registry.k8s.io/sig-storage/csi-attacher:v4.0.0"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "--v=5"
             - "--csi-address=/csi/csi.sock"
@@ -310,6 +325,9 @@ spec:
               name: socket-dir
         - name: csi-provisioner
           image: "registry.k8s.io/sig-storage/csi-provisioner:v3.4.0"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "-v=5"
             - "--csi-address=/csi/csi.sock"
@@ -321,6 +339,9 @@ spec:
               name: socket-dir
         - name: csi-snapshotter
           image: "registry.k8s.io/sig-storage/csi-snapshotter:v6.1.0"
+          resources:
+            limits:
+              memory: "1Gi"
           args:
             - "-v=5"
             - "--csi-address=/csi/csi.sock"

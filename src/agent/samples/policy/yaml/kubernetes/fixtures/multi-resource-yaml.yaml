@@ -18,6 +18,9 @@ spec:
       containers:
         - name: mock-container
           image: "registry.k8s.io/pause:3.9"
+          resources:
+            limits:
+              memory: "1Gi"
 ---
 apiVersion: v1
 kind: ReplicationController
@@ -38,3 +41,6 @@ spec:
       containers:
         - name: mock-container
           image: "registry.k8s.io/pause:3.9"
+          resources:
+            limits:
+              memory: "1Gi"
