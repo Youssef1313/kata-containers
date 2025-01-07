@@ -882,10 +882,10 @@ impl TarDevSnapshotter {
 
             // Fetch the layer image
             let name = dir.path().join(name_to_hash(&key));
-            trace!("Fetching {} layer image to {:?}", layer_type, name);
-            self.get_layer_image(&name, digest_str).await?;
             let mut target_name = name.clone();
             target_name.set_extension(layer_type);
+            trace!("Fetching {} layer image to {:?}", layer_type, target_name);
+            self.get_layer_image(&target_name, digest_str).await?;
     
             // Decompress and process the layer
             trace!("Decompressing {:?} to {:?}", &target_name, &name);
@@ -902,7 +902,11 @@ impl TarDevSnapshotter {
                     std::io::copy(&mut gz_decoder, &mut file)
                     .context("failed to copy payload from gz decoder")?;
                 }
-    
+                else {
+                    let mut tar_file = fs::File::open(&target_name)?;
+                    std::io::copy(&mut tar_file, &mut file).context("failed to copy payload from tar file")?;
+                }
+                
                 trace!("Appending index to {:?}", &name);
                 file.rewind().context("failed to rewind the file handle")?;
                 tarindex::append_index(&mut file).context("failed to append tar index")?;
