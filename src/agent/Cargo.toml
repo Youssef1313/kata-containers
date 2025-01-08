@@ -92,6 +92,7 @@ regorus = { version = "0.2.6", default-features = false, features = [
     "arc",
     "regex",
     "std",
+    "base64",
 ], optional = true }
 json-patch = "2.0.0"
 
